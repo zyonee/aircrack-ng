@@ -16,7 +16,7 @@
 #include <machine/endian.h>
 #endif
 
-#if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__OpenBSD__) || defined(__MidnightBSD__)
+#if defined(__FreeBSD__) || defined(__DragonFly__) || defined(__OpenBSD__) || defined(__MidnightBSD__) || defined(__NetBSD__)
 #include <sys/endian.h>
 #include <sys/types.h>
 #endif
@@ -50,7 +50,7 @@
 
 #if defined(RADIOTAP_FAST_UNALIGNED_ACCESS)
 #define get_unaligned(p)					\
-({								\
+__extension__({								\
 	struct packed_dummy_struct {				\
 		typeof(*(p)) __val;				\
 	} __attribute__((packed)) *__ptr = (void *) (p);	\
@@ -59,7 +59,7 @@
 })
 #else
 #define get_unaligned(p)					\
-({								\
+__extension__({								\
  typeof(*(p)) __tmp;						\
  memmove(&__tmp, (p), sizeof(*(p)));				\
  __tmp;								\

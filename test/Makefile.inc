@@ -74,10 +74,14 @@ TESTS += %D%/test-hex_string_to_array.sh \
 		 %D%/test-aircrack-ng-0018.sh \
 		 %D%/test-aircrack-ng-0019.sh \
 		 %D%/test-aircrack-ng-0021.sh \
+		 %D%/test-aircrack-ng-0022.sh \
+		 %D%/test-aircrack-ng-0023.sh \
 		 %D%/test-airdecap-ng-0001.sh \
 		 %D%/test-airdecap-ng-0002.sh \
 		 %D%/test-airdecap-ng-0003.sh \
 		 %D%/test-airdecap-ng-0004.sh \
+		 %D%/test-airdecap-ng-0005.sh \
+		 %D%/test-airdecap-ng-0006.sh \
 		 %D%/test-wpaclean-0001.sh \
 		 %D%/test-wpaclean-0002.sh \
 		 %D%/test-alltools.sh
@@ -94,6 +98,7 @@ INTEGRATION_TESTS += %D%/test-aireplay-ng-0001.sh \
 		 %D%/test-aireplay-ng-0005.sh \
 		 %D%/test-aireplay-ng-0006.sh \
 		 %D%/test-aireplay-ng-0007.sh \
+         %D%/test-aireplay-ng-0008.sh \
 		 %D%/test-airbase-ng-0001.sh \
 		 %D%/test-airbase-ng-0002.sh \
 		 %D%/test-airbase-ng-0003.sh \
@@ -101,7 +106,8 @@ INTEGRATION_TESTS += %D%/test-aireplay-ng-0001.sh \
 		 %D%/test-airodump-ng-0002.sh \
 		 %D%/test-airodump-ng-0003.sh \
 		 %D%/test-airodump-ng-0004.sh \
-		 %D%/test-airodump-ng-0005.sh
+		 %D%/test-airodump-ng-0005.sh \
+		 %D%/test-airodump-ng-0006.sh
 endif
 
 if HAVE_SQLITE3
@@ -129,10 +135,14 @@ EXTRA_DIST += %D%/test-hex_string_to_array.sh \
 			  %D%/test-aircrack-ng-0018.sh \
 			  %D%/test-aircrack-ng-0019.sh \
 			  %D%/test-aircrack-ng-0021.sh \
+			  %D%/test-aircrack-ng-0022.sh \
+			  %D%/test-aircrack-ng-0023.sh \
 			  %D%/test-airdecap-ng-0001.sh \
 			  %D%/test-airdecap-ng-0002.sh \
 			  %D%/test-airdecap-ng-0003.sh \
 			  %D%/test-airdecap-ng-0004.sh \
+			  %D%/test-airdecap-ng-0005.sh \
+			  %D%/test-airdecap-ng-0006.sh \
 			  %D%/test-wpaclean-0001.sh \
 			  %D%/test-wpaclean-0002.sh \
 			  %D%/test-alltools.sh \
@@ -140,12 +150,14 @@ EXTRA_DIST += %D%/test-hex_string_to_array.sh \
               %D%/int-test-common.sh \
               %D%/wep.open.system.authentication.cap \
               %D%/wpa2-psk-linksys.cap \
+              %D%/wpa3-psk.pcap \
               %D%/test-hex_string_to_array.c \
               %D%/wpa.cap \
               %D%/test.ivs \
               %D%/StayAlfred.hccapx \
               %D%/test1.pcap \
               %D%/test-pmkid.pcap \
+              %D%/capture_wds-01.cap \
               %D%/wpa-psk-linksys.cap \
               %D%/wpa2.eapol.cap \
               %D%/wps2.0.pcap \
@@ -155,6 +167,7 @@ EXTRA_DIST += %D%/test-hex_string_to_array.sh \
               %D%/password-2.lst \
               %D%/password-3.lst \
               %D%/n-02.cap \
+	      %D%/zn2i.pcap \
               %D%/wep.shared.key.authentication.cap \
               %D%/wep_64_ptw.cap \
               %D%/pingreply.c \
@@ -163,7 +176,9 @@ EXTRA_DIST += %D%/test-hex_string_to_array.sh \
 			  %D%/test-airdecap-ng.sh \
 			  %D%/test-airolib-sqlite.sh \
 			  %D%/MOM1.cap \
-			  %D%/pass.txt
+			  %D%/pass.txt \
+			  %D%/test23.pcap \
+			  %D%/testm1m2m3.pcap
 
 if EXPECT
 EXTRA_DIST += %D%/test-aircrack-ng-0020.sh \
@@ -181,6 +196,7 @@ EXTRA_DIST += %D%/test-aireplay-ng-0001.sh \
 			  %D%/test-aireplay-ng-0005.sh \
 			  %D%/test-aireplay-ng-0006.sh \
 			  %D%/test-aireplay-ng-0007.sh \
+              %D%/test-aireplay-ng-0007.sh \
 			  %D%/test-airbase-ng-0001.sh \
 			  %D%/test-airbase-ng-0002.sh \
 			  %D%/test-airbase-ng-0003.sh \
@@ -188,7 +204,8 @@ EXTRA_DIST += %D%/test-aireplay-ng-0001.sh \
 			  %D%/test-airodump-ng-0002.sh \
 			  %D%/test-airodump-ng-0003.sh \
 			  %D%/test-airodump-ng-0004.sh \
-			  %D%/test-airodump-ng-0005.sh
+			  %D%/test-airodump-ng-0005.sh\
+			  %D%/test-airodump-ng-0006.sh
 endif
 
 if HAVE_SQLITE3

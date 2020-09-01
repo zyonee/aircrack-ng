@@ -1,7 +1,7 @@
 /*
- *  Copyright (C) 2006-2018 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2006-2009 Martin Beck <martin.beck2@gmx.de>
- *  Copyright (C) 2018-2019 Joseph Benden <joe@benden.us>
+ *  Copyright (C) 2018-2020 Joseph Benden <joe@benden.us>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -300,9 +300,9 @@ extern unsigned long nb_pkt_sent;
 
 enum Send_Packet_Option
 {
-	kNoChange,
-	kRewriteSequenceNumber,
-	kRewriteDuration,
+	kNoChange = 1 << 0,
+	kRewriteSequenceNumber = 1 << 1,
+	kRewriteDuration = 1 << 2,
 };
 
 static inline int send_packet(struct wif * wi,
@@ -334,19 +334,20 @@ static inline int send_packet(struct wif * wi,
 		pkt[1] = (uint8_t)(pkt[1] & ~0x4);
 	}
 
-	if (wi_write(wi, NULL, LINKTYPE_IEEE802_11, buf, (int) count, NULL) == -1)
+	int rc;
+	do
 	{
-		switch (errno)
+		rc = wi_write(wi, NULL, LINKTYPE_IEEE802_11, buf, (int) count, NULL);
+		if (rc == -1 && errno == ENOBUFS)
 		{
-			case EAGAIN:
-			case ENOBUFS:
-				usleep(10000);
-				return (0); /* XXX not sure I like this... -sorbo */
-
-			default:
-				perror("wi_write()");
-				return (-1);
+			usleep(10000);
 		}
+	} while (rc == -1 && (errno == EAGAIN || errno == ENOBUFS));
+
+	if (rc == -1)
+	{
+		perror("wi_write()");
+		return (-1);
 	}
 
 	++nb_pkt_sent;

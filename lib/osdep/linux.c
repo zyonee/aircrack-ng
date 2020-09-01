@@ -617,10 +617,11 @@ static int linux_read(struct wif * wi,
 
 	if ((unsigned) count > sizeof(tmpbuf)) return (-1);
 
-	if ((caplen = read(dev->fd_in, tmpbuf, count)) < 0)
+	caplen = read(dev->fd_in, tmpbuf, count);
+	if (caplen < 0 && errno == EAGAIN)
+		return (-1);
+	else if (caplen < 0)
 	{
-		if (errno == EAGAIN) return (0);
-
 		perror("read failed");
 		return (-1);
 	}
@@ -633,11 +634,6 @@ static int linux_read(struct wif * wi,
 		default:
 			break;
 	}
-
-	memset(buf, 0, count);
-
-	/* XXX */
-	if (ri) memset(ri, 0, sizeof(*ri));
 
 	if (dlt)
 	{
@@ -660,7 +656,7 @@ static int linux_read(struct wif * wi,
 			{
 				ri->ri_power = (int32_t) load32_le(tmpbuf + 0x33);
 				ri->ri_noise = (int32_t) load32_le(tmpbuf + 0x33 + 12);
-				ri->ri_rate = load32_le(buf + 0x33 + 24) * 500000;
+				ri->ri_rate = load32_le(tmpbuf + 0x33 + 24) * 500000;
 
 				got_signal = 1;
 				got_noise = 1;
@@ -947,19 +943,6 @@ static int linux_write(struct wif * wi,
 
 	/* radiotap header length is stored little endian on all systems */
 	if (usedrtap) ret -= letoh16(*p_rtlen);
-
-	if (ret < 0)
-	{
-		if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ENOBUFS
-			|| errno == ENOMEM)
-		{
-			usleep(10000);
-			return (0);
-		}
-
-		perror("write failed");
-		return (-1);
-	}
 
 	return (ret);
 }
@@ -1839,6 +1822,7 @@ static int do_linux_open(struct wif * wi, char * iface)
 	char * r_file = NULL;
 	struct ifreq ifr;
 	int iface_malloced = 0;
+	size_t iface_len = 0;
 
 	if (iface == NULL || strlen(iface) >= IFNAMSIZ)
 	{
@@ -2139,16 +2123,18 @@ static int do_linux_open(struct wif * wi, char * iface)
 		acpi = NULL;
 
 		// use name in buf as new iface and set original iface as main iface
-		dev->main_if = (char *) malloc(strlen(iface) + 1);
+		iface_len = strlen(iface) + 1;
+		dev->main_if = (char *) malloc(iface_len);
 		if (dev->main_if == NULL) goto close_out;
-		memset(dev->main_if, 0, strlen(iface) + 1);
-		strncpy(dev->main_if, iface, strlen(iface));
+		memset(dev->main_if, 0, iface_len);
+		memcpy(dev->main_if, iface, iface_len);
 
-		iface = (char *) malloc(strlen(buf) + 1);
+		iface_len = strlen(buf) + 1;
+		iface = (char *) malloc(iface_len);
 		if (iface == NULL) goto close_out;
 		iface_malloced = 1;
-		memset(iface, 0, strlen(buf) + 1);
-		strncpy(iface, buf, strlen(buf));
+		memset(iface, 0, iface_len);
+		memcpy(iface, buf, iface_len);
 	}
 
 	/* test if rtap interface and try to find real interface */

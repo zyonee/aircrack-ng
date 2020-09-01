@@ -1,7 +1,7 @@
 /*
  *  Aircrack-ng session (load/restore).
  *
- *  Copyright (C) 2018 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2018-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -55,7 +55,7 @@ struct session
 	pthread_mutex_t
 		mutex; // Locking for when updating wordlist settings and saving file
 	unsigned char is_loaded;
-				// Set to 1 when session is loaded
+	// Set to 1 when session is loaded
 };
 
 struct session * ac_session_new(void);

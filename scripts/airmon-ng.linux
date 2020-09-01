@@ -3,10 +3,9 @@ DEBUG="0"
 VERBOSE="0"
 ELITE="0"
 USERID=""
-IFACE=""
 checkvm_status=""
 MAC80211=0
-IW_SOURCE="https://mirrors.edge.kernel.org/pub/software/network/iw/iw-5.0.1.tar.gz"
+IW_SOURCE="https://mirrors.edge.kernel.org/pub/software/network/iw/iw-5.4.tar.xz"
 IW_ERROR=""
 if [ ! -d /sys/ ]; then
 	printf "CONFIG_SYSFS is disabled in your kernel, this program will almost certainly not work.\n"
@@ -385,7 +384,13 @@ startDeprecatedIface() {
 	fi
 	iwconfig ${1} key off > /dev/null 2>&1
 	setLink ${1} up
-	printf " (monitor mode enabled)"
+	printf "\t\t(monitor mode enabled)\n"
+}
+
+changeMac80211IfaceTypeMonitor() {
+  iw dev ${1} set type monitor > /dev/null 2>&1
+  setLink ${1} up
+  printf "\t\t(monitor mode enabled)\n"
 }
 
 yesorno() {
@@ -438,16 +443,16 @@ startMac80211Iface() {
 		for i in $(ls /sys/class/ieee80211/${PHYDEV}/device/net/); do
 			if [ "$(cat /sys/class/ieee80211/${PHYDEV}/device/net/${i}/type)" = "803" ]; then
 				setChannelMac80211 ${i}
-				printf "\n\t\t(mac80211 monitor mode already enabled for [${PHYDEV}]${1} on [${PHYDEV}]${i})\n"
+				printf "\t\t(mac80211 monitor mode already enabled for [${PHYDEV}]${1} on [${PHYDEV}]${i})\n"
 				exit
 			fi
 		done
 	fi
   #check if chipset has driver not under mac80211 stack
-  if [ "${DRIVER}" = "8812au" ] || [ "${DRIVER}" = "8814au" ] || [ "${DRIVER}" = "88XXau" ]; then
+  if [ "${DRIVER}" = "88XXau" ] || iw phy ${PHYDEV} info | grep -q 'interface combinations are not supported'; then
     #grumble grumble, seriously crap vendor driver
     setLink ${1} down
-    startDeprecatedIface ${1}
+    changeMac80211IfaceTypeMonitor ${1}
     setChannelMac80211 ${1}
     return
   fi
@@ -475,9 +480,9 @@ startMac80211Iface() {
 				stopMac80211Iface ${1}mon abort
 				exit 1
 			fi
-			printf "\n\t\t(mac80211 monitor mode vif enabled for [${PHYDEV}]${1} on [${PHYDEV}]${1}mon)\n"
+			printf "\t\t(mac80211 monitor mode vif enabled for [${PHYDEV}]${1} on [${PHYDEV}]${1}mon)\n"
 		else
-			printf "\n\nERROR adding monitor mode interface: ${IW_ERROR}\n"
+			printf "\nERROR adding monitor mode interface: ${IW_ERROR}\n"
 			exit 1
 		fi
 	fi
@@ -514,6 +519,9 @@ isRPiWireless() {
 	[ "${HW_REV}" = 'a03111' ] && return 1
 	[ "${HW_REV}" = 'b03111' ] && return 1
 	[ "${HW_REV}" = 'c03111' ] && return 1
+	[ "${HW_REV}" = 'b03112' ] && return 1
+	[ "${HW_REV}" = 'c03112' ] && return 1
+	[ "${HW_REV}" = 'd03114' ] && return 1
 	return 0
 }
 
@@ -610,13 +618,19 @@ stopDeprecatedIface() {
 	setLink $1 down
 	iwconfig $1 mode Managed > /dev/null 2>&1
 	setLink $1 up
-	printf " (monitor mode disabled)"
+	printf "\t\t(monitor mode disabled)\n"
+}
+
+changeMac80211IfaceTypeManaged() {
+  iw dev ${1} set type managed > /dev/null 2>&1
+  setLink ${1} up
+  printf "\t\t(monitor mode disabled)\n"
 }
 
 stopMac80211Iface() {
 	if [ -f /sys/class/net/${1}/type ]; then
 		if [ "${2}" != "abort" ] && [ "$(cat /sys/class/net/${1}/type)" != "803" ]; then
-			printf "\n\nYou are trying to stop a device that isn't in monitor mode.\n"
+			printf "\nYou are trying to stop a device that isn't in monitor mode.\n"
 			printf "Doing so is a terrible idea, if you really want to do it then you\n"
 			printf "need to type 'iw ${1} del' yourself since it is a terrible idea.\n"
 			printf "Most likely you want to remove an interface called wlan[0-9]mon\n"
@@ -624,9 +638,9 @@ stopMac80211Iface() {
 			printf "please report it.\n"
 			exit 1
 		else
-			if [ "${DRIVER}" = "8812au" ] || [ "${DRIVER}" = "8814au" ] || [ "${DRIVER}" = "88XXau" ]; then
+			if [ "${DRIVER}" = "88XXau" ] || iw phy ${PHYDEV} info | grep -q 'interface combinations are not supported'; then
 				#grumble grumble, seriously crap vendor driver
-				stopDeprecatedIface ${1}
+				changeMac80211IfaceTypeManaged ${1}
 				return
 			fi
 			if [ "${ELITE}" = "0" ]; then
@@ -663,9 +677,9 @@ stopMac80211Iface() {
 								fi
 							done
 						fi
-						printf "\n\t\t(mac80211 station mode vif enabled on [${PHYDEV}]${interface})\n"
+						printf "\t\t(mac80211 station mode vif enabled on [${PHYDEV}]${interface})\n"
 					else
-						printf "\n\n ERROR adding station mode interface: ${IW_ERROR}\n"
+						printf "\n ERROR adding station mode interface: ${IW_ERROR}\n"
 					fi
 				fi
 			fi
@@ -673,14 +687,14 @@ stopMac80211Iface() {
 			IW_ERROR="$(iw dev "${1}" del 2>&1 | grep "nl80211 not found")"
 			if [ -z "$IW_ERROR" ]; then
 				if [ "${2}" != "abort" ]; then
-					printf "\n\t\t(mac80211 monitor mode vif disabled for [${PHYDEV}]${1})\n"
+					printf "\t\t(mac80211 monitor mode vif disabled for [${PHYDEV}]${1})\n"
 				elif [ "${2}" = "abort" ]; then
 					printf "\nWARNING: unable to start monitor mode, please run \"airmon-ng check kill\"\n"
 				fi
 			else
 				if [ -f /sys/class/ieee80211/${PHYDEV}/remove_iface ]; then
 					printf "${1}" > /sys/class/ieee80211/${PHYDEV}/remove_iface
-					printf "\n\t\t(mac80211 monitor mode vif disabled for [${PHYDEV}]${1})\n"
+					printf "\t\t(mac80211 monitor mode vif disabled for [${PHYDEV}]${1})\n"
 				else
 					printf "\n\nERROR: Neither the sysfs interface links nor the iw command is available.\nPlease download and install iw from\n$IW_SOURCE\n"
 				fi
@@ -734,10 +748,10 @@ getDriver() {
 
 	#here we test for driver usb, ath9k_htc,rt2870, possibly others show this
 	if [ "$DRIVER" = "usb" ]; then
-		printf "Warn ON: USB\n"
 		BUSADDR="$(printf "$ethtool_output" | awk '/bus-info/ {print $2}'):1.0"
 
 		if [ "$DEBUG" = "1" ]; 	then
+			printf "Warn ON: USB\n"
 			printf "${BUSADDR}\n"
 		fi
 
@@ -763,7 +777,7 @@ getDriver() {
 	if [ "$DRIVER" = "rtl8187" ] && [ "$STACK" = "ieee80211" ]; then
 		DRIVER="r8187"
 	fi
-	if [ "$DRIVER" = "rtl88xxau" ]; then
+	if [ "${DRIVER}" = "8812au" ] || [ "${DRIVER}" = "8814au" ] || [ "${DRIVER}" = "rtl88xxau" ] || [ "${DRIVER}" = "rtl88XXau" ]; then
 		DRIVER="88XXau"
 	fi
 	if [ "$DRIVER" = "rtl8812au" ]; then
@@ -839,8 +853,8 @@ getFrom() {
 
 getFirmware() {
 	FIRMWARE="$(printf "$ethtool_output" | awk '/firmware-version/ {print $2}')"
-	#ath9k_htc firmware is a shorter version number than most so trap and make it pretty
-	if [ "$DRIVER" = "ath9k_htc" ]; then
+	#ath9k_htc and intel firmware is a shorter version number than most so trap and make it pretty
+	if [ "${DRIVER}" = "ath9k_htc" ] || [ "${DRIVER}" = "iwlwifi" ]; then
 		FIRMWARE="$FIRMWARE\t"
 	fi
 
@@ -871,7 +885,7 @@ getChipset() {
 		elif [ "${BUS}" = "pci" -o "${BUS}" = "pcmcia" ] && [ "${LSPCI}" = "1" ]; then
 			if [ -f /sys/class/net/$1/device/vendor ] && [ -f /sys/class/net/$1/device/device ]; then
 				DEVICEID="$(cat /sys/class/net/$1/device/vendor):$(cat /sys/class/net/$1/device/device)"
-				CHIPSET="$(lspci -d ${DEVICEID} | cut -f3- -d ":" | sed 's/Wireless LAN Controller //g;s/ Network Connection//g;s/ Wireless Adapter//;s/^ //')"
+				CHIPSET="$(lspci -d ${DEVICEID} | head -n1 - | cut -f3- -d ":" | sed 's/Wireless LAN Controller //g;s/ Network Connection//g;s/ Wireless Adapter//;s/^ //')"
 			else
 				BUSINFO="$(printf "${ethtool_output}" | grep bus-info | cut -d ":" -f "3-" | sed 's/^ //')"
 				CHIPSET="$(lspci | grep "${BUSINFO}" | head -n1 - | cut -f3- -d ":" | sed 's/Wireless LAN Controller //g;s/ Network Connection//g;s/ Wireless Adapter//;s/^ //')"
@@ -1104,19 +1118,28 @@ scanProcesses() {
 		pso="1"
 	fi
 
-	PROCESSES="wpa_action\|wpa_supplicant\|wpa_cli\|dhclient\|ifplugd\|dhcdbd\|dhcpcd\|udhcpc\|NetworkManager\|knetworkmanager\|avahi-autoipd\|avahi-daemon\|wlassistant\|wifibox\|net_applet\|wicd-daemon\|wicd-client"
+	PROCESSES="wpa_action\|wpa_supplicant\|wpa_cli\|dhclient\|ifplugd\|dhcdbd\|dhcpcd\|udhcpc\|NetworkManager\|knetworkmanager\|avahi-autoipd\|avahi-daemon\|wlassistant\|wifibox\|net_applet\|wicd-daemon\|wicd-client\|iwd"
 	#PS_ERROR="invalid\|illegal"
 
-	if [ -x "$(command -v service 2>&1)" ] && [ "$1" = "kill" ]; then
-		service network-manager stop 2> /dev/null > /dev/null
-		service NetworkManager stop 2> /dev/null > /dev/null
-		service avahi-daemon stop 2> /dev/null > /dev/null
-		while [ $? -eq 1 ]; do
-			# Sometimes avahi is persistent and keeps being restarted by systemd.
-			# It's usually 4 times that it needs to be stopped
-			service avahi-daemon stop 2> /dev/null > /dev/null
+	if [ "${1}" = "kill" ]; then
+		servicecmd=""
+		if [ -x "$(command -v service 2>&1)" ]; then
+			servicecmd="service"
+		elif [ -x "$(command -v rc-service 2>&1)" ]; then
+			servicecmd="rc-service"
+		fi
+		for service in network-manager NetworkManager avahi-daemon wicd; do
+			if "${servicecmd}" "${service}" status 2> /dev/null > /dev/null; then
+				killservice=1
+				until "${servicecmd}" "${service}" stop 2> /dev/null > /dev/null; do
+					killservice=$((killservice + 1))
+					if [ ${killservice} -gt 5 ]; then
+						printf "Failed to stop ${service}, please stop it on your own.\n"
+						break
+					fi
+				done
+			fi
 		done
-		service wicd stop 2> /dev/null > /dev/null
 	fi
 
 	unset match
@@ -1434,41 +1457,6 @@ else
 	printf "PHY\tInterface\tDriver\t\tChipset\n\n"
 fi
 
-#this whole block of code shouldn't be here, it makes no sense
-#per shellcheck, this block is broken as it runs the loops once with iface=listIfaceUnspec instead of the output of listIFaceUnspec
-#for iface in listIfaceUnspec; do
-#
-#	if [ -e "/proc/sys/dev/$iface/fftxqmin" ]
-#	then
-#		setLink ${iface} up
-#		printf "$iface\t\tAtheros\t\tmadwifi-ng"
-#		if [ x$1 = "xstart" ] && [ x$2 = x$iface ]
-#		then
-#			IFACE=$(wlanconfig ath create wlandev $iface wlanmode monitor -bssid | grep ath)
-#			setLink ${iface} up
-#			if [ $CH -lt 1000 ]
-#			then
-#				iwconfig $IFACE channel $CH 2> /dev/null > /dev/null
-#			else
-#				iwconfig $IFACE freq "$CH"000000 2> /dev/null > /dev/null
-#			fi
-#		setLink ${IFACE} up
-#		UDEV_ISSUE=$?
-#		fi
-#
-#		if [ x$1 = "xstop" ] && [ x$2 = x$iface ]
-#		then
-#			printf "$iface does not support 'stop', do it on ath interface\n"
-#		fi
-#
-#		#why, dear god why is there a random newline here?
-#		printf "\n"
-#		sleep 1
-#		continue
-#	fi
-#done
-#end random block of code that needs to die
-
 for iface in $(printf "${iface_list}"); do
 	unset ethtool_output DRIVER FROM FIRMWARE STACK MADWIFI MAC80211 BUS BUSADDR BUSINFO DEVICEID CHIPSET EXTENDED NET_TYPE PHYDEV ifacet DRIVERt FIELD1 FIELD1t FIELD2 FIELD2t CHIPSETt
 	#add a RUNNING check here and up the device if it isn't already
@@ -1485,9 +1473,7 @@ for iface in $(printf "${iface_list}"); do
 			getExtendedInfo ${iface}
 		fi
 	else
- 		printf "\nethtool failed...\n"
-		printf "Only mac80211 devices on kernel 2.6.33 or higher are officially supported by airmon-ng.\n"
-		exit 1
+ 		CHIPSET="ethtool failed... driver is broken"
 	fi
 
 	#yes this really is the main output loop

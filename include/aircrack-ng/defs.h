@@ -1,5 +1,5 @@
 /**
- * Copyright (C) 2018 Joseph Benden <joe@benden.us>
+ * Copyright (C) 2018-2020 Joseph Benden <joe@benden.us>
  *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
@@ -169,6 +169,22 @@
 					#c);                                                       \
 		}                                                                      \
 	} while (0)
+
+#if __STDC_VERSION__ >= 199901L
+#define DO_PRAGMA(x) _Pragma (#x)
+#else
+#define DO_PRAGMA(x)
+#endif
+
+#if defined(__clang_major__) && __clang_major__ >= 4
+#define UNROLL_LOOP_N_TIME(n) DO_PRAGMA(clang loop unroll_count(n))
+#elif defined(__GNUC__) && __GNUC__ >= 8
+#define UNROLL_LOOP_N_TIME(n) DO_PRAGMA(GCC unroll n)
+#else
+#define UNROLL_LOOP_N_TIME(n)
+#endif
+
+#include <aircrack-ng/compat.h>
 
 #ifdef __cplusplus
 extern "C" {

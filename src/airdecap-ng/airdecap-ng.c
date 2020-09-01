@@ -1,7 +1,7 @@
 /*
  *  802.11 to Ethernet pcap translator
  *
- *  Copyright (C) 2006-2018 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2004, 2005  Christophe Devine
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -56,7 +56,7 @@
 static const char usage[] =
 
 	"\n"
-	"  %s - (C) 2006-2018 Thomas d\'Otreppe\n"
+	"  %s - (C) 2006-2020 Thomas d\'Otreppe\n"
 	"  https://www.aircrack-ng.org\n"
 	"\n"
 	"  usage: airdecap-ng [options] <pcap file>\n"
@@ -77,6 +77,9 @@ static const char usage[] =
 	"      -k <pmk>   : WPA Pairwise Master Key in hex\n"
 	"\n"
 	"      --help     : Displays this usage screen\n"
+	"\n"
+	"  If your capture contains any WDS packet, you must specify the -b\n"
+	"  option (otherwise only packets destined to the AP will be decrypted)\n"
 	"\n";
 
 static struct decap_stats
@@ -109,6 +112,7 @@ static struct options
 
 static unsigned char buffer[65536];
 static unsigned char buffer2[65536];
+static bool wds = false;
 
 /* this routine handles to 802.11 to Ethernet translation */
 
@@ -188,6 +192,9 @@ write_packet(FILE * f_out, struct pcap_pkthdr * pkh, unsigned char * h80211)
 		pkh->caplen += 12;
 	}
 
+	pkh->len = __cpu_to_le32(pkh->len);
+	pkh->caplen = __cpu_to_le32(pkh->caplen);
+
 	n = sizeof(struct pcap_pkthdr);
 
 	if (fwrite(pkh, 1, n, f_out) != (size_t) n)
@@ -196,7 +203,7 @@ write_packet(FILE * f_out, struct pcap_pkthdr * pkh, unsigned char * h80211)
 		return (EXIT_FAILURE);
 	}
 
-	n = pkh->caplen;
+	n = __le32_to_cpu(pkh->caplen);
 
 	if (fwrite(buffer, 1, n, f_out) != (size_t) n)
 	{
@@ -620,13 +627,18 @@ int main(int argc, char * argv[])
 		}
 	}
 
+#if (AIRCRACK_NG_BYTE_ORDER == AIRCRACK_NG_BIG_ENDIAN)
+	pfh.magic = TCPDUMP_CIGAM;
+#else
 	pfh.magic = TCPDUMP_MAGIC;
-	pfh.version_major = PCAP_VERSION_MAJOR;
-	pfh.version_minor = PCAP_VERSION_MINOR;
+#endif
+	pfh.version_major = cpu_to_le16(PCAP_VERSION_MAJOR);
+	pfh.version_minor = cpu_to_le16(PCAP_VERSION_MINOR);
 	pfh.thiszone = 0;
 	pfh.sigfigs = 0;
-	pfh.snaplen = 65535;
-	pfh.linktype = (opt.no_convert) ? LINKTYPE_IEEE802_11 : LINKTYPE_ETHERNET;
+	pfh.snaplen = cpu_to_le32(65535);
+	pfh.linktype = cpu_to_le32((opt.no_convert) ? LINKTYPE_IEEE802_11
+												: LINKTYPE_ETHERNET);
 
 	n = sizeof(pfh);
 
@@ -713,7 +725,7 @@ int main(int argc, char * argv[])
 		{
 			/* remove the radiotap header */
 
-			n = *(unsigned short *) (h80211 + 2);
+			n = le16_to_cpu(*(unsigned short *) (h80211 + 2));
 
 			if (n <= 0 || n >= (unsigned) pkh.caplen) continue;
 
@@ -777,8 +789,25 @@ int main(int argc, char * argv[])
 				memcpy(bssid, h80211 + 10, sizeof(bssid));
 				break; // FromDS
 			case 3:
-				memcpy(bssid, h80211 + 10, sizeof(bssid));
-				break; // WDS -> Transmitter taken as BSSID
+				wds = true;
+				if (memcmp(opt.bssid, ZERO, 6))
+				{
+					/* BSSID has been specified */
+					if (memcmp(opt.bssid, h80211 + 4, 6))
+						if (memcmp(opt.bssid, h80211 + 10, 6))
+							/* BSSID doesn't match either RA nor TA */
+							continue;
+						else
+							/* BSSID is equal to TA */
+							memcpy(bssid, h80211 + 10, sizeof(bssid));
+					else
+						/* BSSID is equal to RA */
+						memcpy(bssid, h80211 + 4, sizeof(bssid));
+				}
+				else
+					/* BSSID has not been specified, set BSSID from TA*/
+					memcpy(bssid, h80211 + 10, sizeof(bssid));
+				break; // WDS
 		}
 
 		if (memcmp(opt.bssid, ZERO, 6) != 0)
@@ -795,8 +824,17 @@ int main(int argc, char * argv[])
 				memcpy(stmac, h80211 + 4, sizeof(stmac));
 				break;
 			case 3:
-				memcpy(stmac, h80211 + 10, sizeof(stmac));
-				break;
+				if (memcmp(opt.bssid, ZERO, 6))
+				{
+					/* BSSID has been specified */
+					if (memcmp(bssid, h80211 + 4, 6))
+						/* BSSID is not RA, STA must be RA */
+						memcpy(stmac, h80211 + 4, sizeof(stmac));
+				}
+				else
+					/* BSSID is RA or not specified, set STA from TA */
+					memcpy(stmac, h80211 + 10, sizeof(stmac));
+				break; // WDS
 			default:
 				continue;
 		}
@@ -1057,6 +1095,7 @@ int main(int argc, char * argv[])
 				st_cur->keyver = h80211[z + 6] & 7;
 			}
 
+			memcpy(st_cur->bssid, bssid, sizeof(st_cur->bssid));
 			st_cur->valid_ptk = calc_ptk(st_cur, opt.pmk);
 		}
 	}
@@ -1096,6 +1135,8 @@ int main(int argc, char * argv[])
 		   stats.nb_unwpa,
 		   stats.nb_failed_tkip,
 		   stats.nb_failed_ccmp);
+	if (!memcmp(opt.bssid, ZERO, 6) && wds)
+		printf("Warning: WDS packets detected, but no BSSID specified\n");
 
 	return (EXIT_SUCCESS);
 }

@@ -110,7 +110,7 @@ aircrack_ng_LDADD			= $(LIBACCRYPTO_LIBS) $(LIBAIRCRACK_LIBS) $(LIBAIRCRACK_CE_W
 
 if STATIC_BUILD
 aircrack_ng_CFLAGS		+= -DDYNAMIC=0
-aircrack_ng_LDADD			+= $(LIBAIRCRACK_CE_WPA@SIMD_SUFFIX@_LIBS)
+aircrack_ng_LDADD		+= $(LIBAIRCRACK_CE_WPA$(SIMD_SUFFIX)_LIBS)
 else
 aircrack_ng_LDFLAGS		= -rdynamic
 endif
@@ -168,7 +168,7 @@ besside_ng_LDADD		= $(COMMON_LDADD) $(PCRE_LIBS) $(LIBAIRCRACK_OSDEP_LIBS) $(LIB
 
 besside_ng_crawler_SOURCES	= $(SRC_BC)
 besside_ng_crawler_CFLAGS		= $(COMMON_CFLAGS) $(PCAP_CFLAGS)
-besside_ng_crawler_LDADD		= $(COMMON_LDADD) $(PCAP_LIBS) $(CRYPTO_LIBS)
+besside_ng_crawler_LDADD		= $(COMMON_LDADD) $(PCAP_LIBS) $(LIBAIRCRACK_LIBS) $(CRYPTO_LIBS)
 
 makeivs_ng_SOURCES	= $(SRC_MI)
 makeivs_ng_CFLAGS		= $(COMMON_CFLAGS)

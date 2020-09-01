@@ -133,7 +133,7 @@
 static const char usage[] =
 
 	"\n"
-	"  %s - (C) 2008-2015 Thomas d\'Otreppe\n"
+	"  %s - (C) 2008-2020 Thomas d\'Otreppe\n"
 	"  https://www.aircrack-ng.org\n"
 	"\n"
 	"  usage: tkiptun-ng <options> <replay interface>\n"
@@ -267,7 +267,7 @@ static struct local_options
 
 // unused, but needed for link
 struct devices dev;
-struct wif *_wi_in, *_wi_out;
+extern struct wif *_wi_in, *_wi_out;
 
 struct ARP_req
 {
@@ -289,7 +289,7 @@ struct APt
 };
 
 unsigned long nb_pkt_sent;
-unsigned char h80211[4096];
+extern unsigned char h80211[4096];
 static unsigned char srcbuf[4096];
 static char strbuf[512];
 static int alarmed;

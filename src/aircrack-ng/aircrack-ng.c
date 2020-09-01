@@ -1,7 +1,7 @@
 /*
  *  802.11 WEP / WPA-PSK Key Cracker
  *
- *  Copyright (C) 2006-2018 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
+ *  Copyright (C) 2006-2020 Thomas d'Otreppe <tdotreppe@aircrack-ng.org>
  *  Copyright (C) 2004, 2005 Christophe Devine
  *
  *  Advanced WEP attacks developed by KoreK
@@ -106,6 +106,8 @@ static char * db = NULL; ///-V707
 #define DYNAMIC 1
 #endif
 
+#define MIN_WPA_PASSPHRASE_LEN 2U
+
 #define H16800_PMKID_LEN 32
 #define H16800_BSSID_LEN 12
 #define H16800_STMAC_LEN 12
@@ -141,8 +143,8 @@ static pthread_mutex_t mx_ivb; /* lock access to ivbuf array   */
 static pthread_mutex_t mx_dic; /* lock access to opt.dict      */
 static pthread_cond_t cv_eof; /* read EOF condition variable  */
 static int nb_eof = 0; /* # of threads who reached eof */
-static long nb_pkt = 0; /* # of packets read so far     */
-static long nb_prev_pkt = 0; /* # of packets read in prior pass */
+static volatile long nb_pkt = 0; /* # of packets read so far     */
+static volatile long nb_prev_pkt = 0; /* # of packets read in prior pass */
 static int mc_pipe[256][2]; /* master->child control pipe   */
 static int cm_pipe[256][2]; /* child->master results pipe   */
 static int bf_pipe[256][2]; /* bruteforcer 'queue' pipe	 */
@@ -208,7 +210,7 @@ static const unsigned char R[256] = {
 
 static const char usage[]
 	= "\n"
-	  "  %s - (C) 2006-2018 Thomas d\'Otreppe\n"
+	  "  %s - (C) 2006-2020 Thomas d\'Otreppe\n"
 	  "  https://www.aircrack-ng.org\n"
 	  "\n"
 	  "  usage: aircrack-ng [options] <input file(s)>\n"
@@ -727,6 +729,9 @@ static void clean_exit(int ret)
 		ac_session_free(&cracking_session);
 	}
 
+	fflush(stdout);
+	fflush(stderr);
+
 	exit(EXIT_SUCCESS);
 }
 
@@ -1209,6 +1214,7 @@ static int atomic_read(read_buf * rb, int fd, int len, void * buf)
 	}
 	else
 	{
+	tail_until_close:
 		do
 		{
 			if (may_read(fd))
@@ -1230,6 +1236,10 @@ static int atomic_read(read_buf * rb, int fd, int len, void * buf)
 			memcpy(buf, (char *) rb->buf1 + rb->off1, (size_t) len);
 			rb->off1 += len;
 			return (1);
+		}
+		else
+		{
+			if (rb->tail) goto tail_until_close;
 		}
 	}
 
@@ -1492,8 +1502,7 @@ skip_station:
 				data_len -= 6;
 			}
 
-			if (me->mode == PACKET_READER_READ_MODE)
-				calculate_wep_keystream(body, data_len, ap_cur, h80211);
+			calculate_wep_keystream(body, data_len, ap_cur, h80211);
 
 			return (0);
 		}
@@ -1564,6 +1573,9 @@ skip_station:
 	{
 		memcpy(st_cur->wpa.anonce, &h80211[z + 17], sizeof(st_cur->wpa.anonce));
 
+		st_cur->wpa.tv_sec = pkh->tv_sec;
+		st_cur->wpa.tv_usec = pkh->tv_usec;
+
 		/* authenticator nonce set */
 		st_cur->wpa.state = 1;
 
@@ -1592,9 +1604,32 @@ skip_station:
 
 	if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) == 0
 		&& (h80211[z + 6] & 0x80) == 0
-		&& (h80211[z + 5] & 0x01) != 0
-		&& st_cur->wpa.replay == replay_counter)
+		&& (h80211[z + 5] & 0x01) != 0)
 	{
+		if ((st_cur->wpa.found & (1 << 1)) == (1 << 1))
+		{
+			if (st_cur->wpa.tv_sec != 0
+				&& (pkh->tv_sec - st_cur->wpa.tv_sec) >= 5)
+			{
+				st_cur->wpa.state &= ~1;
+				st_cur->wpa.found &= ~(1 << 1);
+			}
+		}
+
+		st_cur->wpa.tv_sec = pkh->tv_sec;
+		st_cur->wpa.tv_usec = pkh->tv_usec;
+
+		if (st_cur->wpa.state == 0)
+		{
+			// no M1; so we store the M2 replay counter.
+			st_cur->wpa.replay = replay_counter;
+		}
+		else if (st_cur->wpa.replay != replay_counter)
+		{
+			// Bad replay counter value in message M2 or M4.
+			return (1);
+		}
+
 		if (memcmp(&h80211[z + 17], ZERO, sizeof(st_cur->wpa.snonce)) != 0)
 		{
 			memcpy(st_cur->wpa.snonce,
@@ -1656,13 +1691,28 @@ skip_station:
 	}
 
 	/* frame 3: Pairwise == 1, Install == 1, Ack == 1, MIC == 1 */
+	/* M3's replay counter MUST be larger than M1/M2's. */
 
 	if ((h80211[z + 6] & 0x08) != 0 && (h80211[z + 6] & 0x40) != 0
 		&& (h80211[z + 6] & 0x80) != 0
 		&& (h80211[z + 5] & 0x01) != 0
-		&& st_cur->wpa.replay == replay_counter)
+		&& st_cur->wpa.replay < replay_counter)
 	{
+		if ((st_cur->wpa.found & (1 << 1 | 1 << 2)) != 0)
+		{
+			if (st_cur->wpa.tv_sec != 0
+				&& (pkh->tv_sec - st_cur->wpa.tv_sec) >= 5)
+			{
+				st_cur->wpa.state &= ~(1 | 2);
+				st_cur->wpa.found &= ~(1 << 1 | 1 << 2);
+			}
+		}
+		st_cur->wpa.tv_sec = pkh->tv_sec;
+		st_cur->wpa.tv_usec = pkh->tv_usec;
+
 		st_cur->wpa.found |= 1 << 3;
+		// Store M3 for comparison with M4.
+		st_cur->wpa.replay = replay_counter;
 
 		if (memcmp(&h80211[z + 17], ZERO, sizeof(st_cur->wpa.anonce)) != 0)
 		{
@@ -1958,9 +2008,11 @@ static void packet_reader_thread(void * arg)
 
 	ALLEGE(signal(SIGINT, sighandler) != SIG_ERR);
 
-	rb.tail
-		= ((request->mode == PACKET_READER_READ_MODE && !opt.bssid_set) ? 1
-																		: 0);
+	rb.tail = (request->mode == PACKET_READER_CHECK_MODE
+			   || (request->mode == PACKET_READER_READ_MODE
+				   && (opt.essid_set || opt.bssid_set)))
+				  ? 0
+				  : 1;
 
 	if ((buffer = (unsigned char *) malloc(65536)) == NULL)
 	{
@@ -3701,14 +3753,18 @@ static void show_wpa_stats(char * key,
 
 		moveto(7, 6);
 		printf("Time left: ");
-		if (opt.wordcount != 0 && ksec > FLT_EPSILON)
-		{
-			calc = ((float) nb_tried / (float) opt.wordcount) * 100.0f;
-			remain = (opt.wordcount - nb_tried);
-			eta = (remain / (long long int) ksec);
 
+		calc = ((float) nb_tried / (float) opt.wordcount) * 100.0f;
+		remain = opt.wordcount - nb_tried;
+		long long int ll_ksec = (long long int) ksec;
+
+		if (remain > 0 && ll_ksec > 0)
+		{
+			eta = (remain / ll_ksec);
 			calctime(eta, calc);
 		}
+		else
+			printf("--\n");
 	}
 
 	memset(tmpbuf, ' ', sizeof(tmpbuf));
@@ -3903,6 +3959,7 @@ static inline int calculate_passphrase_length(uint8_t * key)
 	key[i] = '\0';
 
 	// ensure only valid characters in byte sequence.
+	UNROLL_LOOP_N_TIME(8)
 	for (int j = 0; j < i; j++)
 		if (!isascii(key[j]) || key[j] < 32) i = 0;
 
@@ -3983,7 +4040,7 @@ static int crack_wpa_thread(void * arg)
 				}
 
 				i = calculate_passphrase_length(keys[j].v);
-			} while (i < 8);
+			} while (i < MIN_WPA_PASSPHRASE_LEN);
 
 			keys[j].length = (uint32_t) i;
 #ifdef XDEBUG
@@ -4094,7 +4151,7 @@ static int crack_wpa_pmkid_thread(void * arg)
 				}
 
 				i = calculate_passphrase_length(keys[j].v);
-			} while (i < 8);
+			} while (i < MIN_WPA_PASSPHRASE_LEN);
 
 			keys[j].length = (uint32_t) i;
 #ifdef XDEBUG
@@ -4758,7 +4815,8 @@ static int do_wpa_crack(void)
 		else
 		{
 			ALLEGE(pthread_mutex_lock(&mx_dic) == 0);
-			if (opt.dict == NULL || fgets(key1, sizeof(key1), opt.dict) == NULL)
+			if (opt.dict == NULL
+				|| fgets(key1, sizeof(key1) - 1, opt.dict) == NULL)
 			{
 				ALLEGE(pthread_mutex_unlock(&mx_dic) == 0);
 
@@ -4776,6 +4834,20 @@ static int do_wpa_crack(void)
 			}
 			else
 				ALLEGE(pthread_mutex_unlock(&mx_dic) == 0);
+
+			// Validate incoming passphrase meets the following criteria:
+			// a. is not the pipeline shutdown sentinel.
+			// b. is at least 8 bytes and roughly UTF-8 compatible.
+			if (((uint8_t) key1[0] == 0xff && (uint8_t) key1[1] == 0xff)
+				|| calculate_passphrase_length((uint8_t *) key1)
+					   < MIN_WPA_PASSPHRASE_LEN)
+			{
+				ALLEGE(pthread_mutex_lock(&mx_nb) == 0);
+				++nb_tried;
+				ALLEGE(pthread_mutex_unlock(&mx_nb) == 0);
+
+				continue;
+			}
 		}
 
 		/* count number of lines in next wordlist chunk */
@@ -5238,6 +5310,13 @@ static int perform_wep_crack(struct AP_info * ap_cur)
 
 	int ret = FAILURE;
 	int j = 0;
+	struct winsize ws;
+
+	if (ioctl(0, TIOCGWINSZ, &ws) < 0)
+	{
+		ws.ws_row = 25;
+		ws.ws_col = 80;
+	}
 
 	/* Default key length: 128 bits */
 	if (opt.keylen == 0) opt.keylen = 13;
@@ -5284,6 +5363,19 @@ static int perform_wep_crack(struct AP_info * ap_cur)
 								  - (ap_cur->nb_ivs_vague % PTW_TRY_STEP));
 		do
 		{
+			if (!opt.is_quiet)
+			{
+				char buf[1024];
+				snprintf(buf,
+						 sizeof(buf),
+						 "Got %ld out of %d IVs",
+						 ap_cur->nb_ivs_vague,
+						 opt.next_ptw_try);
+				moveto((ws.ws_col - (int) strlen(buf)) / 2, 6);
+				fputs(buf, stdout);
+				erase_line(0);
+			}
+
 			if (ap_cur->nb_ivs_vague >= opt.next_ptw_try)
 			{
 				if (!opt.is_quiet)
@@ -5309,7 +5401,7 @@ static int perform_wep_crack(struct AP_info * ap_cur)
 					printf("Failed. Next try with %d IVs.\n", opt.next_ptw_try);
 				}
 			}
-			if (ret) usleep(1000);
+			if (ret) usleep(8000);
 		} while (!close_aircrack && ret != 0);
 	}
 
@@ -5580,7 +5672,7 @@ static int perform_wpa_crack(struct AP_info * ap_cur)
 			{
 				int active;
 
-				if (close_aircrack_fast)
+				if (close_aircrack_fast || wpa_cracked)
 				{
 					circular_queue_reset(wpa_data[i].cqueue);
 				}
@@ -5625,6 +5717,7 @@ static int perform_wpa_crack(struct AP_info * ap_cur)
 			{
 				printf("KEY FOUND! [ %s ]\n", wpa_data[i].key);
 				clean_exit(EXIT_SUCCESS);
+				return (SUCCESS);
 			}
 
 			if (opt.l33t)
@@ -5644,40 +5737,43 @@ static int perform_wpa_crack(struct AP_info * ap_cur)
 				textcolor_fg(TEXT_GREEN);
 			}
 
+			moveto(0, 22);
+
 			clean_exit(EXIT_SUCCESS);
 		}
 		else if (!close_aircrack)
 		{
-			if (!opt.is_quiet)
+			if (opt.is_quiet)
 			{
-				moveto((80 - 13) / 2, 8);
-				erase_line(2);
+				printf("\nKEY NOT FOUND\n");
+				clean_exit(EXIT_FAILURE);
+				return (FAILURE);
 			}
-			else
-			{
-				printf("\n");
-			}
-
-			printf("KEY NOT FOUND\n");
-
-			if (opt.is_quiet) clean_exit(EXIT_FAILURE);
 
 			if (opt.stdin_dict)
 			{
 				moveto(30, 5);
-				printf(" %lld", nb_tried);
+				printf(" %lld\n", nb_tried);
 			}
 			else
 			{
-				moveto(18, 4);
-				printf("%lld/%lld keys tested ", nb_tried, opt.wordcount);
-				moveto(7, 6);
-				printf("Time left: ");
-				calctime(0, ((float) nb_tried / (float) opt.wordcount) * 100);
+				uint8_t ptk[64] = {0};
+				uint8_t mic[32] = {0};
+
+				show_wpa_stats(wpa_data[i].key,
+							   (int) strlen(wpa_data[i].key),
+							   (unsigned char *) (wpa_data[i].key),
+							   ptk,
+							   mic,
+							   1);
+
+				moveto((80 - 13) / 2, 8);
+				erase_line(2);
+				printf("KEY NOT FOUND\n");
+
+				moveto(0, 22);
 			}
 		}
-
-		printf("\n\n");
 	}
 #ifdef HAVE_SQLITE
 	else
@@ -5919,8 +6015,7 @@ int main(int argc, char * argv[])
 				break;
 			case 'R':
 				// Restore and continue session
-				fprintf(stderr,
-						"This option must be used alone!\n");
+				fprintf(stderr, "This option must be used alone!\n");
 				return (EXIT_FAILURE);
 
 			case 'W':
@@ -5933,7 +6028,7 @@ int main(int argc, char * argv[])
 			case 'I':
 				_pmkid_16800 = 1;
 				memset((char *) _pmkid_16800_str, 0, sizeof(_pmkid_16800_str));
-				strncpy((char *) _pmkid_16800_str,
+				strlcpy((char *) _pmkid_16800_str,
 						optarg,
 						sizeof(_pmkid_16800_str));
 				break;
@@ -5958,7 +6053,8 @@ int main(int argc, char * argv[])
 				return (EXIT_FAILURE);
 
 			case 'u':
-#if defined(__i386__) || defined(__x86_64__) || defined(__arm__)
+#if defined(__i386__) || defined(__x86_64__) || defined(__arm__)               \
+	|| defined(__aarch64__)
 				cpuid_getinfo();
 				int in_use_simdsize = dso_ac_crypto_engine_simd_width();
 				printf("SIMD size in use= %d ", in_use_simdsize);
@@ -6209,61 +6305,66 @@ int main(int argc, char * argv[])
 				break;
 
 			case 'l':
-
-				opt.logKeyToFile = (char *) calloc(1, strlen(optarg) + 1);
+			{
+				const size_t optarg_len = strlen(optarg) + 1;
+				opt.logKeyToFile = (char *) calloc(1, optarg_len);
 				if (opt.logKeyToFile == NULL)
 				{
 					printf("Error allocating memory\n");
 					return (EXIT_FAILURE);
 				}
 
-				strncpy(opt.logKeyToFile, optarg, strlen(optarg));
-				break;
+				strlcpy(opt.logKeyToFile, optarg, optarg_len);
+			}
+			break;
 
 			case 'E':
-
-				// Make sure there's enough space for file extension just in
-				// case it was forgotten
-				opt.wkp = (char *) calloc(1, strlen(optarg) + 1 + 4);
+			{
+				// Make sure there's enough space for file
+				// extension just in case it was forgotten
+				const size_t wkp_len = strlen(optarg) + 6;
+				opt.wkp = (char *) calloc(1, wkp_len);
 				if (opt.wkp == NULL)
 				{
 					printf("Error allocating memory\n");
 					return (EXIT_FAILURE);
 				}
 
-				strncpy(opt.wkp, optarg, strlen(optarg));
-
-				break;
+				strlcpy(opt.wkp, optarg, wkp_len);
+			}
+			break;
 
 			case 'J':
-
-				// Make sure there's enough space for file extension just in
-				// case it was forgotten
-				opt.hccap = (char *) calloc(1, strlen(optarg) + 1 + 6);
+			{
+				// Make sure there's enough space for file
+				// extension just in case it was forgotten
+				const size_t hccap_len = strlen(optarg) + 8;
+				opt.hccap = (char *) calloc(1, hccap_len);
 				if (opt.hccap == NULL)
 				{
 					printf("Error allocating memory\n");
 					return (EXIT_FAILURE);
 				}
 
-				strncpy(opt.hccap, optarg, strlen(optarg));
-
-				break;
+				strlcpy(opt.hccap, optarg, hccap_len);
+			}
+			break;
 
 			case 'j':
-
-				// Make sure there's enough space for file extension just in
-				// case it was forgotten
-				opt.hccapx = (char *) calloc(1, strlen(optarg) + 1 + 7);
+			{
+				// Make sure there's enough space for file
+				// extension just in case it was forgotten
+				const size_t hccapx_len = strlen(optarg) + 8;
+				opt.hccapx = (char *) calloc(1, hccapx_len);
 				if (opt.hccapx == NULL)
 				{
 					printf("Error allocating memory\n");
 					return (EXIT_FAILURE);
 				}
 
-				strncpy(opt.hccapx, optarg, strlen(optarg));
-
-				break;
+				strlcpy(opt.hccapx, optarg, hccapx_len);
+			}
+			break;
 
 			case 'M':
 
@@ -6445,9 +6546,9 @@ int main(int argc, char * argv[])
 	progname = getVersion(
 		"Aircrack-ng", _MAJ, _MIN, _SUB_MIN, _REVISION, _BETA, _RC);
 
-	if ((cracking_session && cracking_session->is_loaded && 
-		cracking_session->argc - optind < 1) || (!cracking_session && 
-		!_pmkid_16800 && argc - optind < 1))
+	if ((cracking_session && cracking_session->is_loaded
+		 && cracking_session->argc - optind < 1)
+		|| (!cracking_session && !_pmkid_16800 && argc - optind < 1))
 	{
 		if (nbarg == 1)
 		{
@@ -6700,7 +6801,7 @@ int main(int argc, char * argv[])
 						break;
 
 					case 2:
-						printf("WEP (%ld IVs)\n", ap_cur->nb_ivs);
+						printf("WEP (%ld IVs)\n", ap_cur->nb_ivs_vague);
 						break;
 
 					case 3:
@@ -6842,13 +6943,15 @@ int main(int argc, char * argv[])
 
 	/* wait until threads re-read the original packets read in first pass */
 	ALLEGE(pthread_mutex_lock(&mx_eof) == 0);
-	if (!opt.bssid_set)
+	if (!opt.bssid_set && !opt.essid_set)
 	{
-		while (nb_prev_pkt != nb_pkt) pthread_cond_wait(&cv_eof, &mx_eof);
+		while (nb_prev_pkt > nb_pkt && nb_eof != id)
+			pthread_cond_wait(&cv_eof, &mx_eof);
 	}
 	else
 	{
-		while (nb_eof != id) pthread_cond_wait(&cv_eof, &mx_eof);
+		while (nb_prev_pkt >= nb_pkt && nb_eof != id)
+			pthread_cond_wait(&cv_eof, &mx_eof);
 	}
 	ALLEGE(pthread_mutex_unlock(&mx_eof) == 0);
 

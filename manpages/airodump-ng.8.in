@@ -41,6 +41,9 @@ Time before removing the AP/client from the screen when no more packets are rece
 .I -c <channel>[,<channel>[,...]], --channel <channel>[,<channel>[,...]]
 Indicate the channel(s) to listen to. By default airodump-ng hops on all 2.4GHz channels.
 .TP
+.I -C <freq>[,<freq>[,...]]
+Indicates the frequencies to listen to. By default airodump-ng hops on all 2.4GHz channels.
+.TP
 .I -b <abg>, --band <abg>
 Indicate the band on which airodump-ng should hop. It can be a combination of \(aqa\(aq, \(aqb\(aq and \(aqg\(aq letters (\(aqb\(aq and \(aqg\(aq uses 2.4GHz and \(aqa\(aq uses 5GHz). Incompatible with --channel option.
 .TP
@@ -91,8 +94,8 @@ Removes the message that says \(aqfixed channel <interface>: -1\(aq.
 .PP
 .B Filter options:
 .TP
-.I -t <OPN|WEP|WPA|WPA1|WPA2>, --encrypt <OPN|WEP|WPA|WPA1|WPA2>
-It will only show networks matching the given encryption. May be specified more than once: \(aq\-t OPN \-t WPA2\(aq
+.I -t <OPN|WEP|WPA|WPA1|WPA2|WPA3|OWE>, --encrypt <OPN|WEP|WPA|WPA1|WPA2|WPA3|OWE>
+It will only show networks matching the given encryption. Note that WPA is a shortcut for WPA1, WPA2 and WPA3. May be specified more than once: \(aq\-t OPN \-t WPA2\(aq
 .TP
 .I -d <bssid>, --bssid <bssid>
 It will only show networks, matching the given bssid.
@@ -243,7 +246,7 @@ It means lost packets coming from the client. To determine the number of packets
 .I Notes
 Additional information about the client, such as captured EAPOL or PMKID.
 .TP
-.I Packets
+.I Frames
 The number of data packets sent by the client.
 .TP
 .I Probes

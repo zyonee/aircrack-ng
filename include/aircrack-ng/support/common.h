@@ -315,7 +315,7 @@ get_line_from_buffer(char * buffer, size_t size, char * line)
 	{
 		*cursor = '\0';
 		cursor++;
-		strcpy(line, buffer);
+		strlcpy(line, buffer, size);
 		memmove(buffer, cursor, size - (strlen(line) + 1));
 
 		return (size - (strlen(line) + 1));
@@ -376,6 +376,15 @@ static inline float rand_f32(void)
 static inline uint32_t adds_u32(uint32_t a, uint32_t b)
 {
 	uint32_t c = a + b;
+	if (unlikely(c < a)) /* can only happen due to overflow */
+		c = -1;
+	return (c);
+}
+
+/// Saturated add for unsigned, machine word integers.
+static inline uintptr_t adds_uptr(uintptr_t a, uintptr_t b)
+{
+	uintptr_t c = a + b;
 	if (unlikely(c < a)) /* can only happen due to overflow */
 		c = -1;
 	return (c);

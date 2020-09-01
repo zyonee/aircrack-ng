@@ -56,7 +56,7 @@ static void * ti_reader(void * arg);
 
 struct tip_cygwin
 {
-	char tc_name[MAX_IFACE_NAME];
+	char tc_name[256];
 	HANDLE tc_h;
 	pthread_t tc_reader;
 	volatile int tc_running;
@@ -132,8 +132,10 @@ static int ti_try_open(struct tip_cygwin * priv, char * guid)
 	if (!any && strcmp(priv->tc_guid, guid) != 0) return 0;
 
 	/* open the device */
-	snprintf(
+	const size_t device_len = snprintf(
 		device, sizeof(device), "%s%s%s", USERMODEDEVICEDIR, guid, TAPSUFFIX);
+	if (device_len == -1 || device_len >= sizeof(device))
+		return -1;
 	h = CreateFile(device,
 				   GENERIC_READ | GENERIC_WRITE,
 				   0,
@@ -153,14 +155,26 @@ static int ti_try_open(struct tip_cygwin * priv, char * guid)
 	/* XXX check tap version */
 
 	/* bring iface up */
-	if (ti_media_status(priv, 1) == -1) return -1;
+	if (ti_media_status(priv, 1) == -1) goto out_err;
 
-	/* XXX grab printable name */
-	snprintf(priv->tc_name, sizeof(priv->tc_name) - 1, "%s", guid);
+	/* grab printable name */
+	size_t err = snprintf(priv->tc_name, sizeof(priv->tc_name) - 1, "%s", guid);
+	if (err == -1 || err >= sizeof(priv->tc_name))
+		goto out_err;
 
-	if (any) snprintf(priv->tc_guid, sizeof(priv->tc_guid), "%s", guid);
+	if (any)
+	{
+		err = snprintf(priv->tc_guid, sizeof(priv->tc_guid), "%s", guid);
+		if (err == -1 || err >= sizeof(priv->tc_guid))
+			goto out_err;
+	}
 
 	return 1;
+
+out_err:
+	CloseHandle(priv->tc_h);
+	priv->tc_h = INVALID_HANDLE_VALUE;
+	return -1;
 }
 
 /**
@@ -189,7 +203,9 @@ static int ti_get_devs_component(struct tip_cygwin * priv, char * name)
 	char key[256];
 	int rc = 0;
 
-	snprintf(key, sizeof(key) - 1, "%s\\%s", ADAPTER_KEY, name);
+	const size_t key_len = snprintf(key, sizeof(key) - 1, "%s\\%s", ADAPTER_KEY, name);
+	if (key_len == -1 || key_len >= sizeof(key))
+		return -1;
 	if (RegOpenKeyEx(
 			HKEY_LOCAL_MACHINE, key, 0, KEY_READ | KEY_WRITE, &priv->tc_key)
 		!= ERROR_SUCCESS)
@@ -387,7 +403,9 @@ static int ti_set_mtu_cygwin(struct tif * ti, int mtu)
 	char * key = "MTU";
 
 	/* check if reg remains unchanged to avoid reset */
-	snprintf(m, sizeof(m) - 1, "%d", mtu);
+	const size_t m_len = snprintf(m, sizeof(m) - 1, "%d", mtu);
+	if (m_len == -1 || m_len >= sizeof(m))
+		return -1;
 	if (ti_read_reg(priv, key, mold, sizeof(mold)) != -1)
 	{
 		if (strcmp(m, mold) == 0) return 0;
@@ -629,7 +647,12 @@ static struct tif * ti_open_cygwin(char * iface)
 	ti->ti_set_ip = ti_set_ip_cygwin;
 
 	/* setup iface */
-	if (iface) snprintf(priv->tc_guid, sizeof(priv->tc_guid), "%s", iface);
+	if (iface)
+	{
+		const size_t err = snprintf(priv->tc_guid, sizeof(priv->tc_guid), "%s", iface);
+		if (err == -1 || err >= sizeof(priv->tc_guid))
+			goto err;
+	}
 	if (ti_do_open_cygwin(priv) == -1) goto err;
 
 	/* setup reader */
